@@ -1,0 +1,78 @@
+# formic_agent.py
+class FormicEnv:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.pn = build_formic_process()
+        return self.get_state()
+
+    def get_state(self):
+        return {p.name: p.count() for p in self.pn["places"]}
+
+    def get_actions(self):
+        return [t.name for t in self.pn["transitions"]]
+
+    def step(self, action_name):
+        # Fire the chosen transition
+        for t in self.pn["transitions"]:
+            if t.name == action_name:
+                print(f"Firing {action_name}...")
+                t.fire()
+                break
+        
+        obs = self.get_state()
+        # Reward: maximise HCOOH product, minimise purge
+        reward = obs["P_HCOOH_product"] * 10 - obs["P_purge"] * 5
+        
+        # Debug print
+        print(f"  Reactor1: {obs['P_reactor1']}, HCOOH: {obs['P_HCOOH_product']}, Purge: {obs['P_purge']}")
+        
+        return obs, reward
+
+class RuleAgent:
+    def choose_action(self, env):
+        actions = env.get_actions()
+        state = env.get_state()
+        
+        print(f"Available actions: {actions}")
+        print(f"State - Feed gas: {state['P_feed_gas']}, Reactor1: {state['P_reactor1']}")
+        
+        # Smart rule-based decisions
+        if state["P_reactor1"] < 5 and state["P_feed_gas"] > 0:
+            return "T0_feed"
+            
+        if state["P_reactor1"] > 0 and "T1_reaction1" in actions:
+            return "T1_reaction1"
+            
+        if state["P_reactor1"] > 0 and "T2_reaction2" in actions:
+            return "T2_reaction2"
+            
+        if (state["P_reactor1"] > 0 or state["P_HCOOH_Am"] > 0) and "T3_flash" in actions:
+            return "T3_flash"
+            
+        if state["P_flash_vapour"] > 0 and "T4_purge_recycle" in actions:
+            return "T4_purge_recycle"
+            
+        if state["P_flash_liquid"] > 0 and "T5_reaction3" in actions:
+            return "T5_reaction3"
+            
+        return "T0_feed"  # Default to feeding
+
+def run_simulation(steps=20):
+    env = FormicEnv()
+    agent = RuleAgent()
+    obs = env.reset()
+    total_reward = 0
+    
+    print("Initial state:", obs)
+    
+    for step in range(steps):
+        print(f"\n--- Step {step+1} ---")
+        action = agent.choose_action(env)
+        obs, reward = env.step(action)
+        total_reward += reward
+        print(f"Action {action}, Reward {reward}, Total {total_reward}")
+    
+    print("\nFinal token counts:", obs)
+    print("Simulation complete. Total reward:", total_reward)
